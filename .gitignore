@@ -1,0 +1,7 @@
+config/settings.py
+.env
+__pycache__/
+*.pyc
+data/sample/*.xlsx
+data/sample/*.csv
+.streamlit/secrets.toml
