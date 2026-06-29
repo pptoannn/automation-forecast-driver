@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 st.title("🚚 Driver Supply Forecast — Ahamove")
-st.caption("Automation Forecast Driver v0.2")
+st.caption("Automation Forecast Driver v0.3")
 
 # ─── Sidebar config ───────────────────────────────────────────────────────────
 with st.sidebar:
