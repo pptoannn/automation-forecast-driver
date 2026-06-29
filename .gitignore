@@ -1,5 +1,6 @@
 config/settings.py
 .env
+.env
 __pycache__/
 *.pyc
 data/sample/*.xlsx
