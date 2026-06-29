@@ -101,20 +101,28 @@ def multireg_forecast(
     OLS regression (LINEST equivalent):
     Y = β_WeekVar*WeekVar + β_Event*Event + β_DayNo*DayNo_dummy_var + intercept
 
-    X_hist, X_future phải có cột: DayNo_dummy_var, Event, WeekVar
-    Trả về Series FC cho từng hàng X_future
+    Tự align X_hist với y theo index (date) để tránh dimension mismatch.
     """
-    X = X_hist[["DayNo_dummy_var", "Event", "WeekVar"]].values
-    ones = np.ones((X.shape[0], 1))
-    X_with_const = np.hstack([X, ones])
+    # Align X_hist với y theo index
+    common_idx = y.index.intersection(X_hist.index)
+    if len(common_idx) < 4:
+        # Không đủ data → fallback flat mean
+        val = float(y.mean()) if len(y) > 0 else 0.0
+        return pd.Series(val, index=X_future.index)
 
-    coeffs, _, _, _ = np.linalg.lstsq(X_with_const, y.values, rcond=None)
+    y_aligned = y.loc[common_idx]
+    X_aligned = X_hist.loc[common_idx, ["DayNo_dummy_var", "Event", "WeekVar"]].values
+
+    ones = np.ones((X_aligned.shape[0], 1))
+    X_with_const = np.hstack([X_aligned, ones])
+
+    coeffs, _, _, _ = np.linalg.lstsq(X_with_const, y_aligned.values, rcond=None)
     beta_dayno, beta_event, beta_weekvar, intercept = coeffs
 
     X_pred = X_future[["DayNo_dummy_var", "Event", "WeekVar"]].values
     predictions = (
-        beta_dayno  * X_pred[:, 0] +
-        beta_event  * X_pred[:, 1] +
+        beta_dayno   * X_pred[:, 0] +
+        beta_event   * X_pred[:, 1] +
         beta_weekvar * X_pred[:, 2] +
         intercept
     )

@@ -100,15 +100,7 @@ if st.button("🚀 Generate Preview", disabled=not can_run, type="primary"):
         else:
             X_future = None  # month dùng FORECAST riêng
 
-        # Build X_hist từ history (cùng structure)
-        if granularity == "day" and X_future is not None:
-            hist_dates = exclude_tet(hist_raw[["period"]].drop_duplicates(), "period")["period"].tolist()
-            X_hist = build_day_variables(hist_dates)
-        elif granularity == "week":
-            hist_dates = exclude_tet(hist_raw[["period"]].drop_duplicates(), "period")["period"].tolist()
-            X_hist = build_week_variables(hist_dates)
-        else:
-            X_hist = None
+        X_hist = None  # sẽ build riêng cho từng fc_type bên dưới
 
         for fc_type in fc_types:
             try:
@@ -128,6 +120,20 @@ if st.button("🚀 Generate Preview", disabled=not can_run, type="primary"):
 
                 # Filter history
                 hist_filtered = filter_history(hist_raw, fc_type, region)
+
+                # Build X_hist từ periods của hist_filtered (không phải toàn bộ hist_raw)
+                if granularity == "day":
+                    filtered_dates = exclude_tet(
+                        hist_filtered[["period"]].drop_duplicates(), "period"
+                    )["period"].tolist()
+                    X_hist = build_day_variables(filtered_dates)
+                elif granularity == "week":
+                    filtered_dates = exclude_tet(
+                        hist_filtered[["period"]].drop_duplicates(), "period"
+                    )["period"].tolist()
+                    X_hist = build_week_variables(filtered_dates)
+                else:
+                    X_hist = None
 
                 # Run
                 res = run_forecast(

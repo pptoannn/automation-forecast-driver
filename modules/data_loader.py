@@ -15,8 +15,8 @@ GID_HISTORY_MONTH   = "477959512"
 TET_MONTHS = [(2025, 1), (2025, 2), (2026, 1), (2026, 2)]
 
 FC_TYPE_FILTERS = {
-    "all":      {"Category": "ALL",   "SubCat": "all"},
-    "excbulky": {"Category": "ALL",   "SubCat": "NOT_WH"},   # sẽ filter thêm
+    "all":      {"Category": "ALL",   "SubCat": "ALL"},
+    "excbulky": {"Category": "ALL",   "SubCat": "NOT_WH"},
     "4h":       {"Category": "BULKY", "SubCat": "NOT_WH"},
     "gxt":      {"Category": "GXT",   "SubCat": "NOT_WH"},
 }
@@ -54,7 +54,7 @@ def load_history(granularity: str = "day") -> pd.DataFrame:
     # Chuẩn hóa tên cột
     df["FINAL_SEGMENT"] = df["FINAL_SEGMENT"].str.strip()
     df["Category"]      = df["Category"].str.strip().str.upper()
-    df["SubCat"]        = df["SubCat"].str.strip()
+    df["SubCat"]        = df["SubCat"].str.strip().str.upper()  # chuẩn hóa uppercase
 
     numeric_cols = ["active", "total_rq", "total_comp", "AVG_prod"]
     for col in numeric_cols:
