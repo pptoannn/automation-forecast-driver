@@ -190,13 +190,14 @@ def forecast_pct_comp(
     X_future: pd.DataFrame,
     fc_type: str,
     region: str
-) -> pd.DataFrame:
+) -> tuple:
     """
     Dự báo %comp cho từng segment.
-    Trả về DataFrame: index = X_future.index, columns = segments
+    Trả về (DataFrame: index=X_future.index × columns=segments, dict: seg→method_label)
     """
     segments = pct_hist.columns.tolist()
     result = pd.DataFrame(index=X_future.index, columns=segments, dtype=float)
+    methods = {}
 
     for seg in segments:
         # Giữ DatetimeIndex để conditional_avg_wdwe có thể tách WD/WE
@@ -207,22 +208,25 @@ def forecast_pct_comp(
 
         # GXT: chỉ METATRUCK và DN có volume
         if fc_type == "gxt" and seg not in GXT_SEGMENTS:
+            methods[seg] = "GXT = 0"
             result[seg] = 0.0
             continue
 
         cv = calc_cv(series)
         method = select_method(cv, seg, fc_type, "comp")
+        cv_tag = f"CV={cv:.0%}"
 
         if method == "flat_mean":
-            # WD/WE conditional average — khớp với công thức Excel AVERAGE(IF(WD/WE...))
+            methods[seg] = f"Flat Mean WD/WE ({cv_tag})"
             result[seg] = conditional_avg_wdwe(series, X_future.index)
         elif method == "ma":
-            # k=3 kỳ gần nhất, riêng WD và WE
+            methods[seg] = f"MA k=3 WD/WE ({cv_tag})"
             result[seg] = conditional_avg_wdwe(series, X_future.index, k=3)
         elif method == "multireg":
+            methods[seg] = f"MultiReg LINEST ({cv_tag})"
             result[seg] = multireg_forecast(series, X_hist, X_future)
 
-    return result.astype(float)
+    return result.astype(float), methods
 
 
 # ─── Prod calculation ─────────────────────────────────────────────────────────
@@ -232,13 +236,15 @@ def forecast_prod(
     X_hist: pd.DataFrame,
     X_future: pd.DataFrame,
     fc_type: str
-) -> pd.DataFrame:
+) -> tuple:
     """
     Dự báo prod cho từng segment.
     prod_hist: index = period, columns = segments, values = AVG_prod
+    Trả về (DataFrame, dict: seg→method_label)
     """
     segments = prod_hist.columns.tolist()
     result = pd.DataFrame(index=X_future.index, columns=segments, dtype=float)
+    methods = {}
 
     for seg in segments:
         # Giữ DatetimeIndex để conditional_avg_wdwe có thể tách WD/WE
@@ -249,15 +255,19 @@ def forecast_prod(
 
         cv = calc_cv(series)
         method = select_method(cv, seg, fc_type, "prod")
+        cv_tag = f"CV={cv:.0%}"
 
         if method == "flat_mean":
+            methods[seg] = f"Flat Mean WD/WE ({cv_tag})"
             result[seg] = conditional_avg_wdwe(series, X_future.index)
         elif method == "ma":
+            methods[seg] = f"MA k=3 WD/WE ({cv_tag})"
             result[seg] = conditional_avg_wdwe(series, X_future.index, k=3)
         elif method == "multireg":
+            methods[seg] = f"MultiReg LINEST ({cv_tag})"
             result[seg] = multireg_forecast(series, X_hist, X_future)
 
-    return result.astype(float)
+    return result.astype(float), methods
 
 
 # ─── Residual normalization ───────────────────────────────────────────────────
@@ -338,13 +348,15 @@ def run_forecast(
     ).reindex(columns=segments, fill_value=0)
 
     # 3. FC %comp
-    pct_fc = forecast_pct_comp(pct_hist, X_hist, X_future, fc_type, region)
+    pct_fc, comp_methods = forecast_pct_comp(pct_hist, X_hist, X_future, fc_type, region)
 
-    # 4. Normalize residual
+    # 4. Normalize residual — METATRUCK (HAN) được ghi đè thành residual sau bước này
     pct_fc = normalize_pct_comp(pct_fc, region, pct_hist)
+    if region == "HAN":
+        comp_methods[HAN_RESIDUAL] = "Residual (1 - sum others)"
 
     # 5. FC Prod
-    prod_fc = forecast_prod(prod_hist, X_hist, X_future, fc_type)
+    prod_fc, prod_methods = forecast_prod(prod_hist, X_hist, X_future, fc_type)
 
     # 6. FC Comp = FC Raw × %comp
     comp_fc = pct_fc.multiply(fc_raw_volume.values, axis=0)
@@ -359,10 +371,18 @@ def run_forecast(
     # 9. Constraint check
     check = comp_fc.sum(axis=1)
 
+    # 10. Method summary table
+    method_df = pd.DataFrame({
+        "%comp Method": pd.Series(comp_methods),
+        "Prod Method":  pd.Series(prod_methods),
+    }).reindex(segments).fillna("—")
+    method_df.index.name = "Segment"
+
     return {
         "pct_comp": pct_fc,
         "comp":     comp_fc,
         "prod":     prod_fc,
         "active":   active_fc,
-        "check":    check
+        "check":    check,
+        "method":   method_df,
     }

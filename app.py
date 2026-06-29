@@ -163,12 +163,17 @@ if "results" in st.session_state and st.session_state["results"]:
 
     for fc_type, res in results.items():
         with st.expander(f"📊 FC {fc_type.upper()} — {st.session_state['region']}", expanded=True):
-            tab1, tab2, tab3, tab4 = st.tabs(["% Comp", "Comp", "Prod", "Active"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["% Comp", "Comp", "Prod", "Active", "Method"])
 
             with tab1:
-                st.dataframe(res["pct_comp"].style.format("{:.1%}"), use_container_width=True)
+                pct_display = res["pct_comp"].copy()
+                pct_display["TOTAL"] = pct_display.sum(axis=1)
+                st.dataframe(pct_display.style.format("{:.1%}"), use_container_width=True)
+
             with tab2:
-                st.dataframe(res["comp"].style.format("{:.0f}"), use_container_width=True)
+                comp_display = res["comp"].copy()
+                comp_display["TOTAL"] = comp_display.sum(axis=1)
+                st.dataframe(comp_display.style.format("{:.0f}"), use_container_width=True)
                 # Constraint check
                 check = res["check"]
                 raw_vol = st.session_state["fc_raw_df"].set_index("date")[
@@ -179,10 +184,18 @@ if "results" in st.session_state and st.session_state["results"]:
                     st.success("✅ Constraint OK — Σ Comp = FC Raw (không lệch)")
                 else:
                     st.error(f"⚠️ Lệch tối đa: {diff:.2f} — cần kiểm tra lại")
+
             with tab3:
                 st.dataframe(res["prod"].style.format("{:.2f}"), use_container_width=True)
+
             with tab4:
-                st.dataframe(res["active"].style.format("{:.0f}"), use_container_width=True)
+                active_display = res["active"].copy()
+                active_display["TOTAL"] = active_display.sum(axis=1)
+                st.dataframe(active_display.style.format("{:.0f}"), use_container_width=True)
+
+            with tab5:
+                st.caption("Method + CV dùng để forecast từng segment trong kỳ này")
+                st.dataframe(res["method"], use_container_width=True)
 
     # ─── Step 4: Confirm & Export ─────────────────────────────────────────────
     st.divider()
