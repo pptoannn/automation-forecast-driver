@@ -24,12 +24,14 @@ HAN_RESIDUAL = "METATRUCK"
 SGN_RESIDUAL_POOL = ["High", "Medium", "Low", "Return", "Growth"]  # chia theo tỷ trọng 3 kỳ gần nhất
 
 # Rule method cứng (override CV)
+# METATRUCK bị loại khỏi list vì nó là residual (= 1 - Σ others), không cần calc riêng
 FORCE_MULTIREG_COMP = {
-    "all":      ["CORE_HAN", "METATRUCK", "TAI_HAN", "CORE_SGN", "TAI_SGN"],
-    "excbulky": ["CORE_HAN", "METATRUCK", "TAI_HAN", "CORE_SGN", "TAI_SGN"],
-    "4h":       ["METATRUCK"],
-    "gxt":      ["METATRUCK"],
+    "all":      ["CORE_HAN", "TAI_HAN", "CORE_SGN", "TAI_SGN"],
+    "excbulky": ["CORE_HAN", "TAI_HAN", "CORE_SGN", "TAI_SGN"],
+    "4h":       [],
+    "gxt":      [],
 }
+# Các segment còn lại dùng WD/WE conditional average (flat_mean hoặc MA)
 FORCE_MA_COMP = ["High"]  # luôn dùng MA k=3 cho %comp, bất kể CV
 FORCE_MULTIREG_PROD = "all"  # tất cả tệp dùng MultiReg cho prod, trừ High
 FORCE_MA_PROD = ["High"]     # High dùng MA/Flat Mean nếu biến động mạnh
@@ -90,6 +92,39 @@ def flat_mean(series: pd.Series) -> float:
 def moving_average(series: pd.Series, k: int = 3) -> float:
     """MA k kỳ gần nhất (đã loại Tết trước khi truyền vào)"""
     return series.tail(k).mean()
+
+
+def conditional_avg_wdwe(
+    series: pd.Series,
+    forecast_dates: pd.DatetimeIndex,
+    k: int = None
+) -> pd.Series:
+    """
+    Tính average riêng cho WD và WE, sau đó áp cho từng ngày dự báo tương ứng.
+    Excel formula tương đương: AVERAGE(IF(B="WD", FILTER(vals, type="WD"), FILTER(vals, type="WE")))
+
+    series:         lịch sử giá trị, index = DatetimeIndex (period)
+    forecast_dates: DatetimeIndex các ngày cần dự báo
+    k:              nếu set → dùng k kỳ gần nhất của mỗi loại (cho MA)
+    """
+    is_wd = series.index.map(lambda d: pd.Timestamp(d).weekday() < 5)
+    wd_vals = series[is_wd]
+    we_vals = series[~is_wd]
+
+    fallback = float(series.mean()) if len(series) > 0 else 0.0
+
+    if k:
+        wd_avg = float(wd_vals.tail(k).mean()) if len(wd_vals) > 0 else fallback
+        we_avg = float(we_vals.tail(k).mean()) if len(we_vals) > 0 else fallback
+    else:
+        wd_avg = float(wd_vals.mean()) if len(wd_vals) > 0 else fallback
+        we_avg = float(we_vals.mean()) if len(we_vals) > 0 else fallback
+
+    result = {}
+    for d in forecast_dates:
+        result[d] = wd_avg if pd.Timestamp(d).weekday() < 5 else we_avg
+
+    return pd.Series(result, dtype=float).fillna(0.0)
 
 
 def multireg_forecast(
@@ -164,10 +199,11 @@ def forecast_pct_comp(
     result = pd.DataFrame(index=X_future.index, columns=segments, dtype=float)
 
     for seg in segments:
+        # Giữ DatetimeIndex để conditional_avg_wdwe có thể tách WD/WE
         series = exclude_tet(
-            pct_hist[[seg]].reset_index().rename(columns={"period": "period"}),
+            pct_hist[[seg]].reset_index(),
             "period"
-        )[seg]
+        ).set_index("period")[seg]
 
         # GXT: chỉ METATRUCK và DN có volume
         if fc_type == "gxt" and seg not in GXT_SEGMENTS:
@@ -178,11 +214,11 @@ def forecast_pct_comp(
         method = select_method(cv, seg, fc_type, "comp")
 
         if method == "flat_mean":
-            val = flat_mean(series)
-            result[seg] = val
+            # WD/WE conditional average — khớp với công thức Excel AVERAGE(IF(WD/WE...))
+            result[seg] = conditional_avg_wdwe(series, X_future.index)
         elif method == "ma":
-            val = moving_average(series, k=3)
-            result[seg] = val
+            # k=3 kỳ gần nhất, riêng WD và WE
+            result[seg] = conditional_avg_wdwe(series, X_future.index, k=3)
         elif method == "multireg":
             result[seg] = multireg_forecast(series, X_hist, X_future)
 
@@ -205,18 +241,19 @@ def forecast_prod(
     result = pd.DataFrame(index=X_future.index, columns=segments, dtype=float)
 
     for seg in segments:
+        # Giữ DatetimeIndex để conditional_avg_wdwe có thể tách WD/WE
         series = exclude_tet(
-            prod_hist[[seg]].reset_index().rename(columns={"period": "period"}),
+            prod_hist[[seg]].reset_index(),
             "period"
-        )[seg]
+        ).set_index("period")[seg]
 
         cv = calc_cv(series)
         method = select_method(cv, seg, fc_type, "prod")
 
         if method == "flat_mean":
-            result[seg] = flat_mean(series)
+            result[seg] = conditional_avg_wdwe(series, X_future.index)
         elif method == "ma":
-            result[seg] = moving_average(series, k=3)
+            result[seg] = conditional_avg_wdwe(series, X_future.index, k=3)
         elif method == "multireg":
             result[seg] = multireg_forecast(series, X_hist, X_future)
 
@@ -316,7 +353,7 @@ def run_forecast(
     if region == "HAN":
         comp_fc = handle_htx_han(comp_fc)
 
-    # 8. FC Active = CEILING(Comp / Prod)
+    # 8. FC Active = ROUNDUP(Comp / Prod, 0) — khớp với công thức Excel CU368
     active_fc = np.ceil(comp_fc.div(prod_fc.replace(0, np.nan))).fillna(0).astype(int)
 
     # 9. Constraint check
