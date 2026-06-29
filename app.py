@@ -194,8 +194,11 @@ if "results" in st.session_state and st.session_state["results"]:
                 st.dataframe(active_display.style.format("{:.0f}"), use_container_width=True)
 
             with tab5:
-                st.caption("Method + CV dùng để forecast từng segment trong kỳ này")
-                st.dataframe(res["method"], use_container_width=True)
+                if "method" in res:
+                    st.caption("Method + CV dùng để forecast từng segment trong kỳ này")
+                    st.dataframe(res["method"], use_container_width=True)
+                else:
+                    st.warning("Bấm lại **Generate Preview** để xem Method table (kết quả cũ chưa có thông tin này)")
 
     # ─── Step 4: Confirm & Export ─────────────────────────────────────────────
     st.divider()
